@@ -269,4 +269,27 @@ PS S:\Kubernetes\talos> kubectl patch svc argocd-server -n argocd -p '{"spec": {
 service/argocd-server patched
 ```
 
-In Headlamp, I was able to navigate to the talos cluster -> Configuration -> Secrets and select argocd-initial-admin-secret to retrieve the password to access the dashboard for the admin user. Before I could access the ArgoCD dashboard I needed to enable port forwarding at navigate to the talos cluster -> Network -> Services and select argocd-server and under the Ports heading press the Forward port button under 80 > 8080. This gave me the link to [http://127.0.0.1:64814](http://127.0.0.1:2823) where I was able to enter the username and password I retrieved earlier and confirm ArgoCD was working.
+In Headlamp, I was able to navigate to the talos cluster -> Configuration -> Secrets and select argocd-initial-admin-secret to retrieve the password to access the dashboard for the admin user. Before I could access the ArgoCD dashboard I needed to enable port forwarding at navigate to the talos cluster -> Network -> Services and select argocd-server and under the Ports heading press the Forward port button under 80 > 8080. This gave me the link to [http://127.0.0.1:2823](http://127.0.0.1:2823) where I was able to enter the username and password I retrieved earlier and confirm ArgoCD was working.
+
+In Headlamp I started to Events appearing about MountVolume. I figure it was because I don't have any storage classes setup yet. So, next up was to create the NFS storage on the NAS which is on the network.
+
+```
+PS S:\Kubernetes\talos> helm repo update nfs-subdir-external-provisioner
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "nfs-subdir-external-provisioner" chart repository
+Update Complete. ⎈Happy Helming!⎈
+PS S:\Kubernetes\talos> helm install nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner --create-namespace -n storage --set nfs.server=192.168.0.116 --set nfs.path=/volume1/storage-class
+W0403 11:53:26.468761   31720 warnings.go:70] would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nfs-subdir-external-provisioner" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nfs-subdir-external-provisioner" must set securityContext.capabilities.drop=["ALL"]), restricted volume types (volume "nfs-subdir-external-provisioner-root" uses restricted volume type "nfs"), runAsNonRoot != true (pod or container "nfs-subdir-external-provisioner" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "nfs-subdir-external-provisioner" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+NAME: nfs-subdir-external-provisioner
+LAST DEPLOYED: Wed Apr  3 11:53:26 2024
+NAMESPACE: storage
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+PS S:\Kubernetes\talos> notepad.exe storage-class-nfs-storage.yml
+PS S:\Kubernetes\talos> kubectl apply -f storage-class-nfs-storage.yml
+namespace/storage-nfs created
+storageclass.storage.k8s.io/nfs-storage created
+PS S:\Kubernetes\talos> kubectl patch storageclass nfs-storage -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+storageclass.storage.k8s.io/nfs-storage patched
+```
