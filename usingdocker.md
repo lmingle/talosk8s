@@ -404,3 +404,4 @@ PS S:\Kubernetes\talos> kubectl apply -f nginx-pvc.yaml
 pod/nginx-nfs created
 ```
 
+After searching for a bit I figured out that the image being used for the pod required root privledges! With a bit of a cheat I asked [Pi AI](https://pi.ai/talk) 'Is there an nginx image which can runAsNonRoot?'. The response was 'Yes, there are Nginx images that can run as a non-root user. One example is the nginxinc/nginx-unprivileged image, which is officially maintained by Nginx. This image is specifically designed to run as a non-root user, making it a more secure option for running Nginx in a container.'. I modified the yaml file with this image, applied it and voila it worked!
