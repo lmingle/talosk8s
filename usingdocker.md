@@ -293,3 +293,114 @@ storageclass.storage.k8s.io/nfs-storage created
 PS S:\Kubernetes\talos> kubectl patch storageclass nfs-storage -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 storageclass.storage.k8s.io/nfs-storage patched
 ```
+
+The warning about violating PodSecurity "restricted:latest" led me to read up more on Security Context and start looking closer at the nfs-subdir-external-provisioner on Github for SecurityContext. After reading the issues and messages for nfs-subdir-external-provisioner I saw that the project hasn't had very much developer activity. Another project, [csi-driver-nfs](https://github.com/kubernetes-csi/csi-driver-nfs), has getting more attention. So, I decided to follow the article [Installing the NFS CSI Driver on a Kubernetes cluster to allow for dynamic provisioning of Persistent Volumes](https://rudimartinsen.com/2024/01/09/nfs-csi-driver-kubernetes/) and try out that CSI project too. Looking closer you'll see that the csi-driver-nfs is placed in the namespace kube-system which is privledged.
+
+```
+PS S:\Kubernetes\talos> helm repo add csi-driver-nfs https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
+"csi-driver-nfs" has been added to your repositories
+PS S:\Kubernetes\talos> helm repo update csi-driver-nfs
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "csi-driver-nfs" chart repository
+Update Complete. ⎈Happy Helming!⎈
+PS S:\Kubernetes\talos> helm install csi-driver-nfs csi-driver-nfs/csi-driver-nfs --namespace kube-system --version v4.6.0
+NAME: csi-driver-nfs
+LAST DEPLOYED: Wed Apr  3 13:57:13 2024
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+The CSI NFS Driver is getting deployed to your cluster.
+
+To check CSI NFS Driver pods status, please run:
+
+  kubectl --namespace=kube-system get pods --selector="app.kubernetes.io/instance=csi-driver-nfs" --watch
+PS S:\Kubernetes\talos>  kubectl --namespace=kube-system get pods --selector="app.kubernetes.io/instance=csi-driver-nfs" --watch
+NAME                                  READY   STATUS    RESTARTS   AGE
+csi-nfs-controller-76dcdb7f75-qwm8r   4/4     Running   0          23s
+csi-nfs-node-68dm5                    3/3     Running   0          23s
+csi-nfs-node-6m5l7                    3/3     Running   0          23s
+csi-nfs-node-79gbk                    3/3     Running   0          23s
+csi-nfs-node-plx9c                    3/3     Running   0          23s
+PS S:\Kubernetes\talos> notepad.exe .\storage-class-nfs-storage.yml
+PS S:\Kubernetes\talos> kubectl apply -f .\storage-class-nfs-csi.yml
+storageclass.storage.k8s.io/nfs-csi created
+PS S:\Kubernetes\talos> kubectl get storageclasses
+NAME                PROVISIONER                                     RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+nfs-client          cluster.local/nfs-subdir-external-provisioner   Delete          Immediate           true                   24h
+nfs-csi (default)   nfs.csi.k8s.io                                  Retain          Immediate           false                  84s
+nfs-storage         cluster.local/nfs-subdir-external-provisioner   Retain          Immediate           false                  24h
+PS S:\Kubernetes\talos> kubectl describe storageclasses nfs-csi
+Name:            nfs-csi
+IsDefaultClass:  Yes
+Annotations:     kubectl.kubernetes.io/last-applied-configuration={"apiVersion":"storage.k8s.io/v1","kind":"StorageClass","metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"},"name":"nfs-csi"},"mountOptions":["nfsvers=4.1"],"parameters":{"server":"192.168.0.116","share":"/volume1/storage-class"},"provisioner":"nfs.csi.k8s.io","reclaimPolicy":"Retain","volumeBindingMode":"Immediate"}
+,storageclass.kubernetes.io/is-default-class=true
+Provisioner:           nfs.csi.k8s.io
+Parameters:            server=192.168.0.116,share=/volume1/storage-class
+AllowVolumeExpansion:  <unset>
+MountOptions:
+  nfsvers=4.1
+ReclaimPolicy:      Retain
+VolumeBindingMode:  Immediate
+Events:             <none>
+PS S:\Kubernetes\talos> notepad.exe .\pvc-nfs-csi-dynamic.yml
+PS S:\Kubernetes\talos> kubectl apply -f .\pvc-nfs-csi-dynamic.yml
+persistentvolumeclaim/pvc-nfs-csi-dynamic created
+PS S:\Kubernetes\talos> kubectl get persistentvolumeclaims
+NAME                  STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+pvc-nfs-csi-dynamic   Bound    pvc-9d09aee9-98f8-481e-af4b-b6fb369166a8   2Gi        RWX            nfs-csi        <unset>                 20s
+PS S:\Kubernetes\talos> kubectl describe pvc pvc-nfs-csi-dynamic
+Name:          pvc-nfs-csi-dynamic
+Namespace:     default
+StorageClass:  nfs-csi
+Status:        Bound
+Volume:        pvc-9d09aee9-98f8-481e-af4b-b6fb369166a8
+Labels:        <none>
+Annotations:   pv.kubernetes.io/bind-completed: yes
+               pv.kubernetes.io/bound-by-controller: yes
+               volume.beta.kubernetes.io/storage-provisioner: nfs.csi.k8s.io
+               volume.kubernetes.io/storage-provisioner: nfs.csi.k8s.io
+Finalizers:    [kubernetes.io/pvc-protection]
+Capacity:      2Gi
+Access Modes:  RWX
+VolumeMode:    Filesystem
+Used By:       <none>
+Events:
+  Type    Reason                 Age   From                                                                              Message
+  ----    ------                 ----  ----                                                                              -------
+  Normal  ExternalProvisioning   36s   persistentvolume-controller                                                       Waiting for a volume to be created either by the external provisioner 'nfs.csi.k8s.io' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
+  Normal  Provisioning           36s   nfs.csi.k8s.io_talos-default-controlplane-1_736fff9c-023d-4781-8a7e-b7040d881c55  External provisioner is provisioning volume for claim "default/pvc-nfs-csi-dynamic"
+  Normal  ProvisioningSucceeded  36s   nfs.csi.k8s.io_talos-default-controlplane-1_736fff9c-023d-4781-8a7e-b7040d881c55  Successfully provisioned volume pvc-9d09aee9-98f8-481e-af4b-b6fb369166a8
+```
+
+At this point everything looked to be good. I had the Storage Class show up, I created a persistent volume claim and the persistent volume was created. I accessed the NFS server and found the newly created folder. Next up is to create a pod and have it write the the PV.
+
+```
+PS S:\Kubernetes\talos> notepad.exe .\nginx-pvc.yaml
+PS S:\Kubernetes\talos> kubectl apply -f nginx-pvc.yaml
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nginx-nfs" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nginx-nfs" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "nginx-nfs" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "nginx-nfs" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/nginx-nfs created
+PS S:\Kubernetes\talos> kubectl get pod
+NAME        READY   STATUS              RESTARTS   AGE
+nginx-nfs   0/1     ContainerCreating   0          0s
+```
+
+Well that's not what I expected! But wait, the message is just a warning. The pod was created and the pod was able to write create and write to the file. I then deleted the pod and added securityContext settings. 
+
+```
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+```
+
+Which initially looked good at the CLI but resulted in an event 'container has runAsNonRoot and image will run as root (pod: "nginx-nfs_default(b302af89-e100-4d92-8500-516fb42cdbde)", container: nginx-nfs)'
+
+```
+PS S:\Kubernetes\talos> kubectl apply -f nginx-pvc.yaml
+pod/nginx-nfs created
+```
+
