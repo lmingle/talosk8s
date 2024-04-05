@@ -405,3 +405,24 @@ pod/nginx-nfs created
 ```
 
 After searching for a bit I figured out that the image being used for the pod required root privledges! With a bit of a cheat I asked [Pi AI](https://pi.ai/talk) 'Is there an nginx image which can runAsNonRoot?'. The response was 'Yes, there are Nginx images that can run as a non-root user. One example is the nginxinc/nginx-unprivileged image, which is officially maintained by Nginx. This image is specifically designed to run as a non-root user, making it a more secure option for running Nginx in a container.'. I modified the yaml file with this image, applied it and voila it worked!
+
+Earlier when I had installed Prometheus and Grafana I didn't pay attention to the all the warnings in the messages. 
+
+```
+W0401 13:48:59.882754   41572 warnings.go:70] would violate PodSecurity "restricted:latest": host namespaces (hostNetwork=true, hostPID=true), unrestricted capabilities (container "node-exporter" must set securityContext.capabilities.drop=["ALL"]), restricted volume types (volumes "proc", "sys", "root" use restricted volume type "hostPath"), seccompProfile (pod or container "node-exporter" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+W0401 13:48:59.893757   41572 warnings.go:70] would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "pushgateway" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "pushgateway" must set securityContext.capabilities.drop=["ALL"]), seccompProfile (pod or container "pushgateway" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+W0401 13:48:59.896758   41572 warnings.go:70] would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (containers "prometheus-server-configmap-reload", "prometheus-server" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (containers "prometheus-server-configmap-reload", "prometheus-server" must set securityContext.capabilities.drop=["ALL"]), seccompProfile (pod or containers "prometheus-server-configmap-reload", "prometheus-server" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+```
+
+The problem I was having with the NFS CSI led me to an answer for the warnings with Prometheus. The documentation on [Talos Pod Security](https://www.talos.dev/v1.6/kubernetes-guides/configuration/pod-security/) provided the answer. 'Some applications (e.g. Prometheus node exporter or storage solutions) require more relaxed Pod Security Standards, which can be configured by either updating the Pod Security Admission plugin configuration, or by using the pod-security.kubernetes.io/enforce label on the namespace level:'. So, I applied the labeling. In hindsight I should have check the Talos site sooner. I may remove the csi-driver-nfs from kube-system and place it in a separate namespace as I've done previously with the nfs-subdir-external-provisioner.
+
+```
+PS S:\Kubernetes\talos> kubectl get ds -n monitoring
+NAME                                  DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+prometheus-prometheus-node-exporter   4         0         0       0            0           kubernetes.io/os=linux   3d22h
+PS S:\Kubernetes\talos> kubectl label namespace monitoring pod-security.kubernetes.io/enforce=privileged
+namespace/monitoring labeled
+PS S:\Kubernetes\talos> kubectl get ds -n monitoring
+NAME                                  DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+prometheus-prometheus-node-exporter   4         4         4       4            4           kubernetes.io/os=linux   3d22h
+```
